@@ -29,6 +29,10 @@ services:
       JWT_SECRET: ${JWT_SECRET:-dev-only-change-me}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:4200}
       MIGRATIONS_DIR: /db
+      FILE_DIR: /data/files
+      EXPOSE_ACTIVATION_CODES: ${EXPOSE_ACTIVATION_CODES:-true}
+      BOOTSTRAP_ADMIN_LOGIN: ${BOOTSTRAP_ADMIN_LOGIN:-}
+      BOOTSTRAP_ADMIN_PASSWORD: ${BOOTSTRAP_ADMIN_PASSWORD:-}
     ports:
       - "127.0.0.1:8000:8000"
     depends_on:
