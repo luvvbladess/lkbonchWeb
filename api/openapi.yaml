@@ -1,0 +1,3711 @@
+openapi: 3.0.3
+info:
+  title: Личный кабинет университета 2.0 beta
+  version: 0.1.0
+  description: |
+    Контракт MVP для веба и будущих мобильных клиентов.
+    Один развёрнутый сервер обслуживает один вуз.
+
+    Обработчики ещё не написаны: работающий образ применяет схему базы,
+    отвечает на `/health` и отдаёт этот файл.
+
+    Правила, которые нельзя ослабить в реализации:
+    - роль выбирает оболочку, а не путается с правами: студенту права не выдаются;
+    - оценки и групповой чат принадлежат преподавателю дисциплины, отметку пары правит тот, кто её ведёт;
+    - задолженность считает сервер по итоговой оценке, клиент флаг не присылает;
+    - в блоке выборных у студента одна живая заявка;
+    - демо-оплата не создаёт проводку и не уменьшает долг;
+    - закрытый чат заморожен целиком: нельзя ни написать, ни изменить, ни удалить;
+    - импорт по умолчанию ничего не пишет, пока не вызван apply.
+
+servers:
+  - url: http://localhost:8000
+
+tags:
+  - name: auth
+  - name: university
+  - name: me
+  - name: schedule
+  - name: diary
+  - name: electives
+  - name: chats
+  - name: notifications
+  - name: certificates
+  - name: dormitory
+  - name: contracts
+  - name: portfolio
+  - name: files
+  - name: admin
+
+security:
+  - bearerAuth: []
+
+paths:
+  /health:
+    get:
+      tags: [university]
+      operationId: health
+      security: []
+      summary: Проверка процесса и базы
+      responses:
+        "200":
+          description: База отвечает
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Health"
+        "503":
+          description: База недоступна
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Health"
+
+  /api/v1/university:
+    get:
+      tags: [university]
+      operationId: getUniversity
+      security: []
+      summary: Публичные название, цвета и включённые разделы
+      responses:
+        "200":
+          description: Карточка вуза для экрана входа и оболочки
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UniversityPublic"
+
+  /api/v1/university/logo:
+    get:
+      tags: [university]
+      operationId: getUniversityLogo
+      security: []
+      summary: Логотип, если он загружен
+      responses:
+        "200":
+          description: Файл логотипа
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        "404":
+          $ref: "#/components/responses/Error"
+
+  /api/v1/auth/activation/request:
+    post:
+      tags: [auth]
+      operationId: requestActivation
+      security: []
+      summary: Найти импортированного студента и отправить код
+      description: |
+        Совпадают ФИО и идентификатор из настройки вуза
+        (`student_card_number` или `record_book_number`).
+        Код уходит на контакт, уже лежащий в базе. В ответе нет признака,
+        существует ли студент: текст один и тот же.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ActivationRequest"
+      responses:
+        "202":
+          description: Запрос принят
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [message]
+                properties:
+                  message:
+                    type: string
+                    example: Если запись найдена, код отправлен на зарегистрированный контакт.
+        "422":
+          $ref: "#/components/responses/Error"
+
+  /api/v1/auth/activation/confirm:
+    post:
+      tags: [auth]
+      operationId: confirmActivation
+      security: []
+      summary: Подтвердить код и задать логин с паролем
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ActivationConfirm"
+      responses:
+        "200":
+          description: Сессия создана
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TokenPair"
+        "422":
+          $ref: "#/components/responses/Error"
+
+  /api/v1/auth/login:
+    post:
+      tags: [auth]
+      operationId: login
+      security: []
+      summary: Вход сотрудника, администратора или уже активированного студента
+      description: Поле login принимает логин, почту или телефон.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+      responses:
+        "200":
+          description: Сессия создана
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TokenPair"
+        "401":
+          $ref: "#/components/responses/Error"
+
+  /api/v1/auth/refresh:
+    post:
+      tags: [auth]
+      operationId: refreshSession
+      security: []
+      summary: Обменять refresh-токен на новую пару
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [refreshToken]
+              properties:
+                refreshToken:
+                  type: string
+      responses:
+        "200":
+          description: Новая пара. Прежний refresh больше не действует.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TokenPair"
+        "401":
+          $ref: "#/components/responses/Error"
+
+  /api/v1/auth/logout:
+    post:
+      tags: [auth]
+      operationId: logout
+      summary: Отозвать текущий refresh-токен
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [refreshToken]
+              properties:
+                refreshToken:
+                  type: string
+      responses:
+        "204":
+          description: Токен отозван
+
+  /api/v1/auth/password:
+    post:
+      tags: [auth]
+      operationId: changePassword
+      summary: Сменить свой пароль
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [currentPassword, newPassword]
+              properties:
+                currentPassword:
+                  type: string
+                  format: password
+                newPassword:
+                  type: string
+                  format: password
+      responses:
+        "204":
+          description: Пароль изменён, прочие refresh-токены отозваны
+        "422":
+          $ref: "#/components/responses/Error"
+
+  /api/v1/me:
+    get:
+      tags: [me]
+      operationId: getMe
+      summary: Роль, права и профильные сведения для оболочки
+      responses:
+        "200":
+          description: Текущий пользователь
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Me"
+
+  /api/v1/me/contacts:
+    patch:
+      tags: [me]
+      operationId: updateMyContacts
+      summary: Сменить свою почту или телефон
+      description: Группу, номер билета и другие вузовские поля здесь сменить нельзя.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                email:
+                  type: string
+                  format: email
+                phone:
+                  type: string
+      responses:
+        "200":
+          description: Обновлённый профиль входа
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Me"
+        "422":
+          $ref: "#/components/responses/Error"
+
+  /api/v1/me/student-card:
+    get:
+      tags: [me]
+      operationId: getStudentCard
+      summary: Электронный студенческий билет
+      responses:
+        "200":
+          description: Фото и строка для QR. QR рисует клиент.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StudentCard"
+        "404":
+          $ref: "#/components/responses/Error"
+
+  /api/v1/me/scholarship:
+    get:
+      tags: [me]
+      operationId: getMyScholarship
+      summary: Назначенная стипендия и история выплат
+      responses:
+        "200":
+          description: Стипендия студента
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ScholarshipView"
+
+  /api/v1/me/rating:
+    get:
+      tags: [me]
+      operationId: getMyRating
+      summary: Текущий рейтинг, уже посчитанный сервером
+      responses:
+        "200":
+          description: Снимок рейтинга
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Rating"
+
+  /api/v1/me/corrections:
+    get:
+      tags: [me]
+      operationId: listMyCorrections
+      summary: Свои запросы на исправление вузовских сведений
+      responses:
+        "200":
+          description: Список запросов
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ProfileCorrection"
+    post:
+      tags: [me]
+      operationId: createCorrection
+      summary: Попросить исправить группу, билет и другие вузовские поля
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProfileCorrectionCreate"
+      responses:
+        "201":
+          description: Запрос создан
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProfileCorrection"
+
+  /api/v1/schedule:
+    get:
+      tags: [schedule]
+      operationId: listSchedule
+      summary: Персональное расписание на интервал
+      description: |
+        Студент видит опубликованные пары своей текущей группы, включая отменённые.
+        Преподаватель видит пары, где он указан ведущим.
+        Черновики сюда не попадают. Отменённую пару нельзя отметить.
+      parameters:
+        - $ref: "#/components/parameters/from"
+        - $ref: "#/components/parameters/to"
+      responses:
+        "200":
+          description: Пары интервала
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Lesson"
+
+  /api/v1/lessons/{lessonId}:
+    get:
+      tags: [schedule]
+      operationId: getLesson
+      summary: Пара, участники и отметки, которые этому пользователю можно видеть
+      description: |
+        Если пара уже началась, опубликована и не отменена, а у ведущего ещё нет отметки,
+        сервер сам ставит ему «присутствовал». Отдельный планировщик для этого не нужен.
+        Отсутствие строки у студента означает, что он ещё не отмечен, а не что его нет.
+      parameters:
+        - $ref: "#/components/parameters/lessonId"
+      responses:
+        "200":
+          description: Карточка пары
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LessonDetail"
+        "404":
+          $ref: "#/components/responses/Error"
+
+  /api/v1/lessons/{lessonId}/attendance:
+    post:
+      tags: [schedule]
+      operationId: markOwnAttendance
+      summary: Отметить своё присутствие, пока пара идёт
+      description: |
+        После `endsAt`, у отменённой пары и у черновика сервер отвечает 422 `attendance_closed`.
+        Студент может поставить только присутствие, не отсутствие.
+        Без сети клиент кнопку не шлёт. Повторный вызов не создаёт вторую отметку.
+      parameters:
+        - $ref: "#/components/parameters/lessonId"
+      responses:
+        "200":
+          description: Отметка «присутствовал»
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Attendance"
+        "422":
+          $ref: "#/components/responses/Error"
+
+  /api/v1/lessons/{lessonId}/attendance/{userId}:
+    patch:
+      tags: [schedule]
+      operationId: correctStudentAttendance
+      summary: Исправить отметку студента
+      description: |
+        Вызывать может только ведущий этой пары. Отдельного права на это нет:
+        назначение на встречу и есть разрешение. Явку преподавателя этот метод не меняет.
+      parameters:
+        - $ref: "#/components/parameters/lessonId"
+        - $ref: "#/components/parameters/userId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [mark]
+              properties:
+                mark:
+                  $ref: "#/components/schemas/AttendanceMark"
+      responses:
+        "200":
+          description: Исправленная отметка
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Attendance"
+        "403":
+          $ref: "#/components/responses/Error"
+
+  /api/v1/diary:
+    get:
+      tags: [diary]
+      operationId: getDiary
+      summary: Оценки, аттестация и зачётка по семестрам
+      parameters:
+        - name: semesterId
+          in: query
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Дневник
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Diary"
+
+  /api/v1/debts:
+    get:
+      tags: [diary]
+      operationId: listDebts
+      summary: Академические задолженности
+      responses:
+        "200":
+          description: Оценки с признаком задолженности
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Grade"
+
+  /api/v1/teaching:
+    get:
+      tags: [diary]
+      operationId: listMyTeaching
+      summary: Дисциплины и группы, где текущий пользователь указан преподавателем плана
+      responses:
+        "200":
+          description: Назначения
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/TeachingAssignment"
+
+  /api/v1/teaching/{groupDisciplineId}/grades:
+    get:
+      tags: [diary]
+      operationId: listTeachingGrades
+      summary: Оценки группы по дисциплине, которую ведёт текущий преподаватель
+      parameters:
+        - name: groupDisciplineId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Студенты группы и их оценки по этой дисциплине
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Grade"
+        "403":
+          $ref: "#/components/responses/Error"
+
+  /api/v1/grades:
+    post:
+      tags: [diary]
+      operationId: createGrade
+      summary: Выставить оценку по дисциплине, где пользователь указан преподавателем плана
+      description: |
+        Замена на одной паре оценки не ставит. Сервер сам решает, задолженность это или нет,
+        и копирует кредиты из учебного плана. Клиент поле isDebt не присылает.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GradeWrite"
+      responses:
+        "201":
+          description: Оценка записана, рейтинг студента пересчитан
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Grade"
+        "403":
+          $ref: "#/components/responses/Error"
+
+  /api/v1/grades/{gradeId}:
+    patch:
+      tags: [diary]
+      operationId: updateGrade
+      summary: Изменить свою ранее выставленную оценку
+      parameters:
+        - $ref: "#/components/parameters/gradeId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GradeWrite"
+      responses:
+        "200":
+          description: Оценка изменена, рейтинг пересчитан
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Grade"
+
+  /api/v1/electives:
+    get:
+      tags: [electives]
+      operationId: listElectives
+      summary: Выборные дисциплины своей группы в открытый срок
+      description: Дисциплины собраны в блоки. В каждом блоке у студента одна живая заявка.
+      responses:
+        "200":
+          description: Дисциплины и текущая заявка, если она есть
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ElectiveOffer"
+
+  /api/v1/elective-applications:
+    post:
+      tags: [electives]
+      operationId: applyForElective
+      summary: Подать или сменить выбор до даты изменения
+      description: |
+        Новая заявка в том же блоке переводит предыдущую живую заявку в withdrawn.
+        После даты изменения и после закрытия семестра сервер отвечает 422.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [groupDisciplineId]
+              properties:
+                groupDisciplineId:
+                  type: string
+                  format: uuid
+      responses:
+        "201":
+          description: Заявка принята
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ElectiveApplication"
+        "422":
+          $ref: "#/components/responses/Error"
+
+  /api/v1/elective-applications/{applicationId}:
+    patch:
+      tags: [electives]
+      operationId: withdrawElectiveApplication
+      summary: Отозвать свою заявку до даты изменения
+      parameters:
+        - $ref: "#/components/parameters/applicationId"
+      responses:
+        "200":
+          description: Заявка отозвана
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ElectiveApplication"
+
+  /api/v1/staff/elective-applications:
+    get:
+      tags: [electives]
+      operationId: listElectiveQueue
+      summary: Очередь заявок на выборные дисциплины
+      description: Право `electives.review`.
+      parameters:
+        - $ref: "#/components/parameters/status"
+      responses:
+        "200":
+          description: Очередь
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ElectiveApplication"
+
+  /api/v1/staff/elective-applications/{applicationId}/decision:
+    post:
+      tags: [electives]
+      operationId: decideElectiveApplication
+      summary: Одобрить или отклонить заявку
+      parameters:
+        - $ref: "#/components/parameters/applicationId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReviewDecision"
+      responses:
+        "200":
+          description: Решение записано
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ElectiveApplication"
+
+  /api/v1/conversations:
+    get:
+      tags: [chats]
+      operationId: listConversations
+      summary: Чаты пользователя, включая закрытые семестры
+      parameters:
+        - name: q
+          in: query
+          description: Поиск по тексту сообщений
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Список чатов
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Conversation"
+
+  /api/v1/conversations/direct:
+    post:
+      tags: [chats]
+      operationId: createDirectConversation
+      summary: Открыть личный диалог студента и преподавателя по дисциплине
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [disciplineId, semesterId, peerUserId]
+              properties:
+                disciplineId:
+                  type: string
+                  format: uuid
+                semesterId:
+                  type: string
+                  format: uuid
+                peerUserId:
+                  type: string
+                  format: uuid
+      responses:
+        "200":
+          description: Уже существующий или новый диалог
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Conversation"
+        "422":
+          $ref: "#/components/responses/Error"
+
+  /api/v1/conversations/{conversationId}/messages:
+    get:
+      tags: [chats]
+      operationId: listMessages
+      parameters:
+        - $ref: "#/components/parameters/conversationId"
+        - $ref: "#/components/parameters/cursor"
+        - $ref: "#/components/parameters/limit"
+      responses:
+        "200":
+          description: Страница сообщений, старые дальше по cursor
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessagePage"
+    post:
+      tags: [chats]
+      operationId: createMessage
+      description: |
+        В закрытый семестр сервер отвечает 422 `conversation_closed`.
+        Повтор с тем же `clientMessageId` возвращает уже сохранённое сообщение.
+        Так клиент отправляет очередь, накопленную без сети.
+      parameters:
+        - $ref: "#/components/parameters/conversationId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MessageCreate"
+      responses:
+        "201":
+          description: Сообщение сохранено
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Message"
+        "422":
+          $ref: "#/components/responses/Error"
+
+  /api/v1/messages/{messageId}:
+    patch:
+      tags: [chats]
+      operationId: updateMessage
+      summary: Редактировать своё сообщение, пока семестр чата открыт
+      parameters:
+        - $ref: "#/components/parameters/messageId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [body]
+              properties:
+                body:
+                  type: string
+      responses:
+        "200":
+          description: Сообщение изменено
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Message"
+    delete:
+      tags: [chats]
+      operationId: deleteMessage
+      summary: Удалить своё сообщение, пока семестр чата открыт
+      parameters:
+        - $ref: "#/components/parameters/messageId"
+      responses:
+        "204":
+          description: Сообщение скрыто
+
+  /api/v1/conversations/{conversationId}/read:
+    post:
+      tags: [chats]
+      operationId: markConversationRead
+      parameters:
+        - $ref: "#/components/parameters/conversationId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [messageId]
+              properties:
+                messageId:
+                  type: string
+                  format: uuid
+      responses:
+        "204":
+          description: Отметка прочтения сдвинута
+
+  /api/v1/notifications:
+    get:
+      tags: [notifications]
+      operationId: listNotifications
+      parameters:
+        - $ref: "#/components/parameters/cursor"
+        - $ref: "#/components/parameters/limit"
+      responses:
+        "200":
+          description: Лента уведомлений
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NotificationPage"
+
+  /api/v1/notifications/{notificationId}/read:
+    post:
+      tags: [notifications]
+      operationId: markNotificationRead
+      parameters:
+        - name: notificationId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "204":
+          description: Прочитано
+
+  /api/v1/notifications/read-all:
+    post:
+      tags: [notifications]
+      operationId: markAllNotificationsRead
+      responses:
+        "204":
+          description: Все текущие уведомления прочитаны
+
+  /api/v1/devices:
+    post:
+      tags: [notifications]
+      operationId: registerDevice
+      summary: Зарегистрировать push-токен мобильного приложения
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [platform, token]
+              properties:
+                platform:
+                  type: string
+                  enum: [web, android, ios]
+                token:
+                  type: string
+      responses:
+        "204":
+          description: Токен сохранён
+
+  /api/v1/certificate-types:
+    get:
+      tags: [certificates]
+      operationId: listCertificateTypes
+      summary: Включённые виды справок и способы выдачи
+      responses:
+        "200":
+          description: Справочник для формы заказа
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/CertificateType"
+
+  /api/v1/certificate-requests:
+    get:
+      tags: [certificates]
+      operationId: listCertificateRequests
+      summary: Свои заказы. Сотрудник или администратор с правом review видит очередь
+      description: Студент всегда получает только свои заявки, даже если право каким-то образом оказалось у роли.
+      parameters:
+        - $ref: "#/components/parameters/status"
+      responses:
+        "200":
+          description: Заявки
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/CertificateRequest"
+    post:
+      tags: [certificates]
+      operationId: createCertificateRequest
+      summary: Заказать справку
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [typeId, deliveryMode]
+              properties:
+                typeId:
+                  type: string
+                  format: uuid
+                deliveryMode:
+                  type: string
+                  enum: [electronic, paper, appointment]
+                comment:
+                  type: string
+      responses:
+        "201":
+          description: Заявка создана
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CertificateRequest"
+
+  /api/v1/certificate-requests/{requestId}:
+    patch:
+      tags: [certificates]
+      operationId: updateCertificateRequest
+      summary: Продвинуть заявку, назначить время или приложить файл
+      description: Право `certificates.review`.
+      parameters:
+        - $ref: "#/components/parameters/requestId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CertificateReview"
+      responses:
+        "200":
+          description: Заявка обновлена, студент получит уведомление
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CertificateRequest"
+
+  /api/v1/dorm-applications:
+    get:
+      tags: [dormitory]
+      operationId: listDormApplications
+      summary: Свои заявления. С правом review — очередь
+      responses:
+        "200":
+          description: Заявления
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/DormApplication"
+    post:
+      tags: [dormitory]
+      operationId: createDormApplication
+      summary: Подать заявление на заселение
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                comment:
+                  type: string
+      responses:
+        "201":
+          description: Заявление создано
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DormApplication"
+
+  /api/v1/dorm-applications/{applicationId}:
+    patch:
+      tags: [dormitory]
+      operationId: updateDormApplication
+      summary: Назначить место, статус и договор проживания
+      description: |
+        Право `dorm.review`. Статус settled ставит студенту livesInDorm.
+        Отказ уже живущего в общежитии оттуда не выписывает: факт проживания правится отдельно.
+      parameters:
+        - $ref: "#/components/parameters/applicationId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DormReview"
+      responses:
+        "200":
+          description: Заявление обновлено
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DormApplication"
+
+  /api/v1/contracts:
+    get:
+      tags: [contracts]
+      operationId: listContracts
+      summary: Свои договоры с начислениями, платежами и долгом
+      responses:
+        "200":
+          description: Договоры студента
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Contract"
+
+  /api/v1/contracts/{contractId}:
+    get:
+      tags: [contracts]
+      operationId: getContract
+      parameters:
+        - $ref: "#/components/parameters/contractId"
+      responses:
+        "200":
+          description: Договор и проводки
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Contract"
+
+  /api/v1/contracts/{contractId}/demo-payments:
+    post:
+      tags: [contracts]
+      operationId: createDemoPayment
+      summary: Учебная оплата картой или через СБП
+      description: |
+        Деньги не списываются и долг по договору не меняется.
+        Операция остаётся в списке demoPayments договора.
+        Ответ всегда `result = demo_completed`.
+      parameters:
+        - $ref: "#/components/parameters/contractId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [amount, method]
+              properties:
+                amount:
+                  type: string
+                  example: "1500.00"
+                method:
+                  type: string
+                  enum: [card, sbp]
+      responses:
+        "201":
+          description: Учебная операция проведена
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DemoPayment"
+              example:
+                id: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                educational: true
+                result: demo_completed
+                method: sbp
+                amount: "1500.00"
+                message: Демо-оплата выполнена, средства не списаны
+
+  /api/v1/portfolio:
+    get:
+      tags: [portfolio]
+      operationId: listPortfolio
+      summary: Свои материалы или материалы, к которым выдан доступ
+      responses:
+        "200":
+          description: Документы
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/PortfolioDocument"
+    post:
+      tags: [portfolio]
+      operationId: createPortfolioDocument
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PortfolioWrite"
+      responses:
+        "201":
+          description: Документ создан
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PortfolioDocument"
+
+  /api/v1/portfolio/{documentId}:
+    patch:
+      tags: [portfolio]
+      operationId: updatePortfolioDocument
+      parameters:
+        - $ref: "#/components/parameters/documentId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PortfolioWrite"
+      responses:
+        "200":
+          description: Документ изменён
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PortfolioDocument"
+    delete:
+      tags: [portfolio]
+      operationId: deletePortfolioDocument
+      parameters:
+        - $ref: "#/components/parameters/documentId"
+      responses:
+        "204":
+          description: Документ удалён
+
+  /api/v1/portfolio/{documentId}/grants:
+    put:
+      tags: [portfolio]
+      operationId: replacePortfolioGrants
+      summary: Заменить список пользователей, которым открыт документ
+      parameters:
+        - $ref: "#/components/parameters/documentId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [userIds]
+              properties:
+                userIds:
+                  type: array
+                  items:
+                    type: string
+                    format: uuid
+      responses:
+        "200":
+          description: Доступы заменены
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PortfolioDocument"
+
+  /api/v1/files:
+    post:
+      tags: [files]
+      operationId: uploadFile
+      summary: Загрузить вложение, фото или результат справки
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        "201":
+          description: Файл сохранён на томе сервера
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StoredFile"
+
+  /api/v1/files/{fileId}:
+    get:
+      tags: [files]
+      operationId: getFile
+      description: Сервер отдаёт файл только владельцу, получателю доступа или сотруднику с правом на связанную заявку.
+      parameters:
+        - $ref: "#/components/parameters/fileId"
+      responses:
+        "200":
+          description: Содержимое файла
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        "403":
+          $ref: "#/components/responses/Error"
+
+  /api/v1/admin/university:
+    get:
+      tags: [admin]
+      operationId: getUniversitySettings
+      summary: Полные настройки вуза
+      description: Право `settings.manage`.
+      responses:
+        "200":
+          description: Настройки
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UniversitySettings"
+    patch:
+      tags: [admin]
+      operationId: updateUniversitySettings
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UniversitySettings"
+      responses:
+        "200":
+          description: Настройки сохранены
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UniversitySettings"
+
+  /api/v1/admin/org-units:
+    get:
+      tags: [admin]
+      operationId: listOrgUnits
+      responses:
+        "200":
+          description: Подразделения
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/OrgUnit"
+    post:
+      tags: [admin]
+      operationId: createOrgUnit
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OrgUnitWrite"
+      responses:
+        "201":
+          description: Подразделение создано
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OrgUnit"
+
+  /api/v1/admin/org-units/{orgUnitId}:
+    patch:
+      tags: [admin]
+      operationId: updateOrgUnit
+      parameters:
+        - $ref: "#/components/parameters/orgUnitId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OrgUnitWrite"
+      responses:
+        "200":
+          description: Подразделение изменено
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OrgUnit"
+
+  /api/v1/admin/semesters:
+    get:
+      tags: [admin]
+      operationId: listSemesters
+      responses:
+        "200":
+          description: Семестры
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Semester"
+    post:
+      tags: [admin]
+      operationId: createSemester
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SemesterWrite"
+      responses:
+        "201":
+          description: Семестр создан
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Semester"
+
+  /api/v1/admin/semesters/{semesterId}:
+    patch:
+      tags: [admin]
+      operationId: updateSemester
+      parameters:
+        - $ref: "#/components/parameters/semesterId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SemesterWrite"
+      responses:
+        "200":
+          description: Семестр изменён
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Semester"
+
+  /api/v1/admin/semesters/{semesterId}/sync-chats:
+    post:
+      tags: [admin]
+      operationId: syncSemesterChats
+      summary: Создать недостающие групповые чаты и добавить участников
+      description: |
+        По опубликованным парам семестра: отдельный чат на каждую пару «группа + дисциплина».
+        Участники — текущие студенты группы и ведущие этих пар.
+        Повторный вызов добавляет новых и не удаляет тех, кто уже был в чате.
+        Закрытый семестр не открывается заново.
+      parameters:
+        - $ref: "#/components/parameters/semesterId"
+      responses:
+        "200":
+          description: Сколько чатов создано и сколько участников добавлено
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [conversationsCreated, membersAdded]
+                properties:
+                  conversationsCreated:
+                    type: integer
+                  membersAdded:
+                    type: integer
+
+  /api/v1/admin/semesters/{semesterId}/close:
+    post:
+      tags: [admin]
+      operationId: closeSemester
+      summary: Закрыть семестр и заморозить его чаты
+      description: После закрытия нельзя ни отправить, ни изменить, ни удалить сообщение. История остаётся.
+      parameters:
+        - $ref: "#/components/parameters/semesterId"
+      responses:
+        "200":
+          description: Семестр закрыт
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Semester"
+
+  /api/v1/admin/groups:
+    get:
+      tags: [admin]
+      operationId: listGroups
+      responses:
+        "200":
+          description: Группы
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/StudyGroup"
+    post:
+      tags: [admin]
+      operationId: createGroup
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StudyGroupWrite"
+      responses:
+        "201":
+          description: Группа создана
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StudyGroup"
+
+  /api/v1/admin/groups/{groupId}:
+    patch:
+      tags: [admin]
+      operationId: updateGroup
+      parameters:
+        - $ref: "#/components/parameters/groupId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StudyGroupWrite"
+      responses:
+        "200":
+          description: Группа изменена
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StudyGroup"
+
+  /api/v1/admin/disciplines:
+    get:
+      tags: [admin]
+      operationId: listDisciplines
+      responses:
+        "200":
+          description: Дисциплины
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Discipline"
+    post:
+      tags: [admin]
+      operationId: createDiscipline
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DisciplineWrite"
+      responses:
+        "201":
+          description: Дисциплина создана
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Discipline"
+
+  /api/v1/admin/disciplines/{disciplineId}:
+    patch:
+      tags: [admin]
+      operationId: updateDiscipline
+      parameters:
+        - $ref: "#/components/parameters/disciplineId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DisciplineWrite"
+      responses:
+        "200":
+          description: Дисциплина изменена
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Discipline"
+
+  /api/v1/admin/elective-blocks:
+    get:
+      tags: [admin]
+      operationId: listElectiveBlocks
+      parameters:
+        - name: semesterId
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: groupId
+          in: query
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Блоки, внутри которых студент выбирает одну дисциплину
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ElectiveBlock"
+    post:
+      tags: [admin]
+      operationId: createElectiveBlock
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ElectiveBlockWrite"
+      responses:
+        "201":
+          description: Блок создан
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ElectiveBlock"
+
+  /api/v1/admin/group-disciplines:
+    get:
+      tags: [admin]
+      operationId: listCurriculum
+      parameters:
+        - name: semesterId
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: groupId
+          in: query
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Привязка дисциплин к группам
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/CurriculumItem"
+    post:
+      tags: [admin]
+      operationId: createCurriculumItem
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CurriculumItemWrite"
+      responses:
+        "201":
+          description: Привязка создана
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CurriculumItem"
+
+  /api/v1/admin/lessons:
+    get:
+      tags: [admin]
+      operationId: listAdminLessons
+      description: Включая черновики. Право `schedule.manage`.
+      parameters:
+        - $ref: "#/components/parameters/from"
+        - $ref: "#/components/parameters/to"
+      responses:
+        "200":
+          description: Пары
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Lesson"
+    post:
+      tags: [admin]
+      operationId: createLesson
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LessonWrite"
+      responses:
+        "201":
+          description: Черновик пары создан
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Lesson"
+
+  /api/v1/admin/lessons/{lessonId}:
+    patch:
+      tags: [admin]
+      operationId: updateLesson
+      parameters:
+        - $ref: "#/components/parameters/lessonId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LessonWrite"
+      responses:
+        "200":
+          description: Пара изменена. Если она была опубликована, студенты получают уведомление.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Lesson"
+
+  /api/v1/admin/lessons/{lessonId}/publish:
+    post:
+      tags: [admin]
+      operationId: publishLesson
+      parameters:
+        - $ref: "#/components/parameters/lessonId"
+      responses:
+        "200":
+          description: Пара опубликована
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Lesson"
+
+  /api/v1/admin/lessons/{lessonId}/teacher-attendance:
+    patch:
+      tags: [admin]
+      operationId: correctTeacherAttendance
+      summary: Изменить автоматическую явку преподавателя
+      description: Право `attendance.correct_teacher`. Преподаватель сам эту отметку не меняет.
+      parameters:
+        - $ref: "#/components/parameters/lessonId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [userId, mark]
+              properties:
+                userId:
+                  type: string
+                  format: uuid
+                mark:
+                  $ref: "#/components/schemas/AttendanceMark"
+      responses:
+        "200":
+          description: Явка преподавателя изменена
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Attendance"
+
+  /api/v1/admin/users:
+    get:
+      tags: [admin]
+      operationId: listUsers
+      description: Право `users.manage`.
+      parameters:
+        - name: q
+          in: query
+          schema:
+            type: string
+        - name: role
+          in: query
+          schema:
+            $ref: "#/components/schemas/Role"
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [pending, active, blocked]
+        - $ref: "#/components/parameters/cursor"
+        - $ref: "#/components/parameters/limit"
+      responses:
+        "200":
+          description: Страница пользователей
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserPage"
+    post:
+      tags: [admin]
+      operationId: createUser
+      summary: Создать сотрудника или администратора
+      description: Студентов создаёт импорт, не эта форма.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StaffUserWrite"
+      responses:
+        "201":
+          description: Учётная запись создана
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminUser"
+
+  /api/v1/admin/users/{userId}:
+    get:
+      tags: [admin]
+      operationId: getUser
+      parameters:
+        - $ref: "#/components/parameters/userId"
+      responses:
+        "200":
+          description: Пользователь
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminUser"
+    patch:
+      tags: [admin]
+      operationId: updateUser
+      parameters:
+        - $ref: "#/components/parameters/userId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StaffUserUpdate"
+      responses:
+        "200":
+          description: Пользователь изменён
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminUser"
+
+  /api/v1/admin/users/{userId}/block:
+    post:
+      tags: [admin]
+      operationId: blockUser
+      parameters:
+        - $ref: "#/components/parameters/userId"
+      responses:
+        "204":
+          description: Вход запрещён, refresh-токены отозваны
+
+  /api/v1/admin/users/{userId}/unblock:
+    post:
+      tags: [admin]
+      operationId: unblockUser
+      parameters:
+        - $ref: "#/components/parameters/userId"
+      responses:
+        "204":
+          description: Блокировка снята
+
+  /api/v1/admin/permissions:
+    get:
+      tags: [admin]
+      operationId: listPermissions
+      summary: Справочник кодов прав
+      responses:
+        "200":
+          description: Коды из таблицы permissions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  required: [code, description]
+                  properties:
+                    code:
+                      type: string
+                    description:
+                      type: string
+
+  /api/v1/admin/users/{userId}/permissions:
+    put:
+      tags: [admin]
+      operationId: replaceUserPermissions
+      summary: Заменить набор прав пользователя
+      parameters:
+        - $ref: "#/components/parameters/userId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [permissions]
+              properties:
+                permissions:
+                  type: array
+                  items:
+                    type: string
+      responses:
+        "200":
+          description: Права заменены
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminUser"
+
+  /api/v1/admin/rating-formula:
+    get:
+      tags: [admin]
+      operationId: getRatingFormula
+      responses:
+        "200":
+          description: Активная формула
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RatingFormula"
+    put:
+      tags: [admin]
+      operationId: replaceRatingFormula
+      summary: Задать формулу рейтинга и пересчитать снимки
+      description: |
+        definition — объект, не произвольный код.
+        type: weighted_average, mean или sum.
+        of: final_numeric_grades.
+        weight: credits, только для weighted_average.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RatingFormulaWrite"
+      responses:
+        "200":
+          description: Формула сохранена
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RatingFormula"
+
+  /api/v1/admin/certificate-types:
+    get:
+      tags: [admin]
+      operationId: listAdminCertificateTypes
+      responses:
+        "200":
+          description: Все виды, включая выключенные
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/CertificateType"
+    post:
+      tags: [admin]
+      operationId: createCertificateType
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CertificateTypeWrite"
+      responses:
+        "201":
+          description: Вид справки создан
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CertificateType"
+
+  /api/v1/admin/certificate-types/{typeId}:
+    patch:
+      tags: [admin]
+      operationId: updateCertificateType
+      parameters:
+        - name: typeId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CertificateTypeWrite"
+      responses:
+        "200":
+          description: Вид справки изменён
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CertificateType"
+
+  /api/v1/admin/contracts:
+    get:
+      tags: [admin]
+      operationId: listAdminContracts
+      summary: Договоры студентов для сотрудника с правом contracts.manage
+      parameters:
+        - name: studentId
+          in: query
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Договоры
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Contract"
+    post:
+      tags: [admin]
+      operationId: createContract
+      description: Право `contracts.manage`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ContractWrite"
+      responses:
+        "201":
+          description: Договор создан
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Contract"
+
+  /api/v1/admin/contracts/{contractId}/entries:
+    post:
+      tags: [admin]
+      operationId: createLedgerEntry
+      summary: Добавить начисление или платёж
+      description: |
+        Строку потом нельзя изменить. Ошибочную гасит вторая запись с тем же направлением и суммой:
+        обе остаются в истории и выпадают из долга. Платёж для этого не используется,
+        иначе долг выглядит оплаченным. Демо-оплата проводку не создаёт.
+      parameters:
+        - $ref: "#/components/parameters/contractId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LedgerWrite"
+      responses:
+        "201":
+          description: Проводка добавлена
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LedgerEntry"
+
+  /api/v1/admin/scholarships:
+    get:
+      tags: [admin]
+      operationId: listScholarships
+      summary: Назначенные стипендии
+      parameters:
+        - name: studentId
+          in: query
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Стипендии
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ScholarshipGrant"
+    post:
+      tags: [admin]
+      operationId: createScholarship
+      description: Право `scholarships.manage`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ScholarshipWrite"
+      responses:
+        "201":
+          description: Стипендия назначена
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ScholarshipGrant"
+
+  /api/v1/admin/scholarships/{grantId}/payouts:
+    post:
+      tags: [admin]
+      operationId: createScholarshipPayout
+      parameters:
+        - name: grantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [amount, paidOn]
+              properties:
+                amount:
+                  type: string
+                paidOn:
+                  type: string
+                  format: date
+      responses:
+        "201":
+          description: Выплата записана
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ScholarshipPayout"
+
+  /api/v1/admin/corrections:
+    get:
+      tags: [admin]
+      operationId: listCorrections
+      description: Право `data.correct`.
+      parameters:
+        - $ref: "#/components/parameters/status"
+      responses:
+        "200":
+          description: Запросы студентов
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ProfileCorrection"
+
+  /api/v1/admin/corrections/{correctionId}/decision:
+    post:
+      tags: [admin]
+      operationId: decideCorrection
+      summary: Применить или отклонить исправление сведений
+      parameters:
+        - name: correctionId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CorrectionDecision"
+      responses:
+        "200":
+          description: Если решение apply, поле профиля уже изменено
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProfileCorrection"
+
+  /api/v1/admin/imports:
+    post:
+      tags: [admin]
+      operationId: createImport
+      summary: Разобрать Excel или CSV и показать ошибки по строкам
+      description: |
+        Право `import.run`. Пока `dryRun` истинно, база пользователей и расписания не меняется.
+        По умолчанию `mode = insert_only`: совпавшие строки попадут в ошибки и не будут перезаписаны.
+        `upsert` нужно передавать явно.
+
+        Колонки по доменам:
+        - students: last_name, first_name, middle_name, group_name, entry_year, course, funding, record_book_number, student_card_number, email или phone (хотя бы одно)
+        - employees: last_name, first_name, middle_name, login, email, phone, position, org_unit
+        - groups: name, course, entry_year, org_unit
+        - disciplines: code, name, org_unit
+        - elective_blocks: group_name, entry_year, semester_title, title
+        - curriculum: group_name, entry_year, discipline_code, semester_title, kind, credits, teacher_login, block_title
+        - lessons: либо date + starts_at + ends_at, либо weekday + start_time + end_time + week (all, odd или even) на даты семестра; дальше discipline_code, group_name, entry_year, teacher_login, room
+        - scholarships: student_card_number, title, amount, next_payout_on
+        - contracts: student_card_number, kind, number, title, opened_on
+        - ledger: contract_number, direction, amount, occurred_on, description
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [domain, file]
+              properties:
+                domain:
+                  type: string
+                  enum: [students, employees, groups, disciplines, elective_blocks, curriculum, lessons, scholarships, contracts, ledger]
+                mode:
+                  type: string
+                  enum: [insert_only, upsert]
+                  default: insert_only
+                dryRun:
+                  type: boolean
+                  default: true
+                file:
+                  type: string
+                  format: binary
+      responses:
+        "200":
+          description: Отчёт разбора. При dryRun статус preview.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ImportBatch"
+        "422":
+          $ref: "#/components/responses/Error"
+
+  /api/v1/admin/imports/{batchId}:
+    get:
+      tags: [admin]
+      operationId: getImport
+      parameters:
+        - $ref: "#/components/parameters/batchId"
+      responses:
+        "200":
+          description: Отчёт, включая ошибки строк
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ImportBatch"
+
+  /api/v1/admin/imports/{batchId}/apply:
+    post:
+      tags: [admin]
+      operationId: applyImport
+      summary: Записать ранее разобранный файл
+      description: Верные строки пишутся одной транзакцией. Ошибочные пропускаются. Уже лежащие данные не повреждаются.
+      parameters:
+        - $ref: "#/components/parameters/batchId"
+      responses:
+        "200":
+          description: Импорт применён
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ImportBatch"
+
+  /api/v1/admin/audit:
+    get:
+      tags: [admin]
+      operationId: listAudit
+      description: Право `audit.read`. Журнал только дополняется.
+      parameters:
+        - $ref: "#/components/parameters/cursor"
+        - $ref: "#/components/parameters/limit"
+        - name: entityType
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Страница журнала
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuditPage"
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Короткий access-токен. Refresh передаётся в теле, не в этом заголовке.
+
+  parameters:
+    from:
+      name: from
+      in: query
+      required: true
+      schema:
+        type: string
+        format: date-time
+    to:
+      name: to
+      in: query
+      required: true
+      schema:
+        type: string
+        format: date-time
+    cursor:
+      name: cursor
+      in: query
+      schema:
+        type: string
+    limit:
+      name: limit
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 50
+    status:
+      name: status
+      in: query
+      schema:
+        type: string
+    lessonId:
+      name: lessonId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    userId:
+      name: userId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    gradeId:
+      name: gradeId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    applicationId:
+      name: applicationId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    conversationId:
+      name: conversationId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    messageId:
+      name: messageId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    requestId:
+      name: requestId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    contractId:
+      name: contractId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    documentId:
+      name: documentId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    fileId:
+      name: fileId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    orgUnitId:
+      name: orgUnitId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    semesterId:
+      name: semesterId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    groupId:
+      name: groupId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    disciplineId:
+      name: disciplineId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    batchId:
+      name: batchId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+
+  responses:
+    Error:
+      description: Ошибка с кодом для клиента и русской фразой для человека
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error:
+              code: attendance_closed
+              message: Не удалось отметиться. Занятие уже закончилось — обратитесь к преподавателю.
+
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+            message:
+              type: string
+    Health:
+      type: object
+      required: [status, database]
+      properties:
+        status:
+          type: string
+          enum: [ok, degraded]
+        database:
+          type: string
+          enum: [ok, down]
+    Role:
+      type: string
+      enum: [student, employee, admin]
+    TokenPair:
+      type: object
+      required: [accessToken, refreshToken, expiresIn]
+      properties:
+        accessToken:
+          type: string
+        refreshToken:
+          type: string
+        expiresIn:
+          type: integer
+          description: Срок access-токена в секундах
+    ActivationRequest:
+      type: object
+      required: [lastName, firstName, identifier]
+      properties:
+        lastName:
+          type: string
+        firstName:
+          type: string
+        middleName:
+          type: string
+        identifier:
+          type: string
+          description: Номер студенческого или зачётки, как выбрал вуз
+    ActivationConfirm:
+      allOf:
+        - $ref: "#/components/schemas/ActivationRequest"
+        - type: object
+          required: [code, login, password]
+          properties:
+            code:
+              type: string
+            login:
+              type: string
+            password:
+              type: string
+              format: password
+    LoginRequest:
+      type: object
+      required: [login, password]
+      properties:
+        login:
+          type: string
+        password:
+          type: string
+          format: password
+    UniversityPublic:
+      type: object
+      required: [name, shortName, brandSeed, brandAccent, enabledSections]
+      properties:
+        name:
+          type: string
+        shortName:
+          type: string
+        brandSeed:
+          type: string
+        brandAccent:
+          type: string
+        enabledSections:
+          type: array
+          description: |
+            Включённые модули. Профиль есть всегда.
+            Пункт «Услуги» появляется, если включён certificates, dormitory или contracts.
+            Выборные показываются внутри дневника.
+          items:
+            type: string
+            enum:
+              - schedule
+              - diary
+              - chats
+              - electives
+              - certificates
+              - dormitory
+              - contracts
+              - portfolio
+              - scholarships
+        logoUrl:
+          type: string
+          nullable: true
+    UniversitySettings:
+      allOf:
+        - $ref: "#/components/schemas/UniversityPublic"
+        - type: object
+          required: [timezone, studentMatchField]
+          properties:
+            timezone:
+              type: string
+            studentMatchField:
+              type: string
+              enum: [student_card_number, record_book_number]
+            passScore:
+              type: string
+              description: Итоговый балл ниже этого числа сервер считает задолженностью
+            failingLabels:
+              type: array
+              items:
+                type: string
+    Me:
+      type: object
+      required: [id, role, status, lastName, firstName, permissions, enabledSections]
+      properties:
+        id:
+          type: string
+          format: uuid
+        role:
+          $ref: "#/components/schemas/Role"
+        status:
+          type: string
+          enum: [pending, active, blocked]
+        lastName:
+          type: string
+        firstName:
+          type: string
+        middleName:
+          type: string
+        login:
+          type: string
+          nullable: true
+        email:
+          type: string
+          nullable: true
+        phone:
+          type: string
+          nullable: true
+        permissions:
+          type: array
+          items:
+            type: string
+        enabledSections:
+          type: array
+          items:
+            type: string
+        student:
+          nullable: true
+          allOf:
+            - $ref: "#/components/schemas/StudentProfile"
+        employee:
+          nullable: true
+          allOf:
+            - $ref: "#/components/schemas/EmployeeProfile"
+    StudentProfile:
+      type: object
+      properties:
+        groupId:
+          type: string
+          format: uuid
+          nullable: true
+        groupName:
+          type: string
+          nullable: true
+        orgUnitName:
+          type: string
+          nullable: true
+          description: Факультет или институт группы. Отдельным полем у студента не хранится.
+        course:
+          type: integer
+          nullable: true
+        funding:
+          type: string
+          enum: [budget, paid, targeted]
+        recordBookNumber:
+          type: string
+          nullable: true
+        studentCardNumber:
+          type: string
+          nullable: true
+        livesInDorm:
+          type: boolean
+    EmployeeProfile:
+      type: object
+      properties:
+        orgUnitName:
+          type: string
+          nullable: true
+        position:
+          type: string
+    StudentCard:
+      type: object
+      required: [fullName, qrPayload]
+      properties:
+        fullName:
+          type: string
+        studentCardNumber:
+          type: string
+          nullable: true
+        recordBookNumber:
+          type: string
+          nullable: true
+        groupName:
+          type: string
+          nullable: true
+        photoUrl:
+          type: string
+          nullable: true
+        qrPayload:
+          type: string
+          description: Строка вида lkbonch:{shortName}:{studentCardNumber}
+    PersonName:
+      type: object
+      required: [lastName, firstName]
+      properties:
+        lastName:
+          type: string
+        firstName:
+          type: string
+        middleName:
+          type: string
+    Lesson:
+      type: object
+      required: [id, disciplineName, startsAt, endsAt, room, publicationStatus, groups]
+      properties:
+        id:
+          type: string
+          format: uuid
+        disciplineName:
+          type: string
+        startsAt:
+          type: string
+          format: date-time
+        endsAt:
+          type: string
+          format: date-time
+        room:
+          type: string
+        publicationStatus:
+          type: string
+          enum: [draft, published]
+        cancelled:
+          type: boolean
+        groups:
+          type: array
+          items:
+            type: string
+        teacherName:
+          type: string
+          nullable: true
+    LessonDetail:
+      allOf:
+        - $ref: "#/components/schemas/Lesson"
+        - type: object
+          properties:
+            attendance:
+              type: array
+              items:
+                $ref: "#/components/schemas/Attendance"
+            canMarkSelf:
+              type: boolean
+    AttendanceMark:
+      type: string
+      enum: [present, absent]
+    Attendance:
+      type: object
+      required: [userId, mark, origin]
+      properties:
+        userId:
+          type: string
+          format: uuid
+        fullName:
+          type: string
+        mark:
+          $ref: "#/components/schemas/AttendanceMark"
+        origin:
+          type: string
+          enum: [student, system, teacher, admin]
+        updatedAt:
+          type: string
+          format: date-time
+    Grade:
+      type: object
+      required: [id, disciplineName, semesterId, kind, isFinal, isDebt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        disciplineName:
+          type: string
+        semesterId:
+          type: string
+          format: uuid
+        semesterTitle:
+          type: string
+        kind:
+          type: string
+          enum: [current, passfail, graded_credit, exam]
+        title:
+          type: string
+        score:
+          type: string
+          nullable: true
+        label:
+          type: string
+        isFinal:
+          type: boolean
+        isDebt:
+          type: boolean
+          description: Считает сервер. Клиент при записи это поле не присылает.
+        credits:
+          type: string
+    GradeWrite:
+      type: object
+      required: [studentId, disciplineId, semesterId, kind, isFinal]
+      properties:
+        studentId:
+          type: string
+          format: uuid
+        disciplineId:
+          type: string
+          format: uuid
+        semesterId:
+          type: string
+          format: uuid
+        kind:
+          type: string
+          enum: [current, passfail, graded_credit, exam]
+        title:
+          type: string
+        score:
+          type: string
+          nullable: true
+        label:
+          type: string
+        isFinal:
+          type: boolean
+    Diary:
+      type: object
+      required: [semesters]
+      properties:
+        semesters:
+          type: array
+          items:
+            type: object
+            required: [semesterId, title, grades]
+            properties:
+              semesterId:
+                type: string
+                format: uuid
+              title:
+                type: string
+              grades:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Grade"
+    TeachingAssignment:
+      type: object
+      required: [groupDisciplineId, disciplineName, groupName, semesterTitle, kind]
+      properties:
+        groupDisciplineId:
+          type: string
+          format: uuid
+        disciplineName:
+          type: string
+        groupName:
+          type: string
+        semesterTitle:
+          type: string
+        kind:
+          type: string
+          enum: [required, elective]
+    Rating:
+      type: object
+      required: [score, computedAt]
+      properties:
+        score:
+          type: string
+          nullable: true
+        computedAt:
+          type: string
+          format: date-time
+          nullable: true
+    ElectiveOffer:
+      type: object
+      required: [groupDisciplineId, disciplineName, credits]
+      properties:
+        groupDisciplineId:
+          type: string
+          format: uuid
+        disciplineName:
+          type: string
+        credits:
+          type: string
+        application:
+          $ref: "#/components/schemas/ElectiveApplication"
+    ElectiveApplication:
+      type: object
+      required: [id, status]
+      properties:
+        id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [pending, approved, rejected, withdrawn]
+        disciplineName:
+          type: string
+        studentName:
+          type: string
+        submittedAt:
+          type: string
+          format: date-time
+    ReviewDecision:
+      type: object
+      required: [decision]
+      properties:
+        decision:
+          type: string
+          enum: [approved, rejected]
+    CorrectionDecision:
+      type: object
+      required: [decision]
+      properties:
+        decision:
+          type: string
+          enum: [apply, reject]
+    Conversation:
+      type: object
+      required: [id, kind, title, closed]
+      properties:
+        id:
+          type: string
+          format: uuid
+        kind:
+          type: string
+          enum: [group, direct]
+        title:
+          type: string
+        closed:
+          type: boolean
+        unreadCount:
+          type: integer
+        lastMessage:
+          $ref: "#/components/schemas/Message"
+    Message:
+      type: object
+      required: [id, authorUserId, body, createdAt, deleted]
+      properties:
+        id:
+          type: string
+          format: uuid
+        authorUserId:
+          type: string
+          format: uuid
+        authorName:
+          type: string
+        body:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        editedAt:
+          type: string
+          format: date-time
+          nullable: true
+        deleted:
+          type: boolean
+        attachmentIds:
+          type: array
+          items:
+            type: string
+            format: uuid
+    MessageCreate:
+      type: object
+      required: [clientMessageId]
+      properties:
+        clientMessageId:
+          type: string
+          format: uuid
+        body:
+          type: string
+        attachmentIds:
+          type: array
+          items:
+            type: string
+            format: uuid
+    MessagePage:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Message"
+        nextCursor:
+          type: string
+          nullable: true
+    Notification:
+      type: object
+      required: [id, type, title, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        type:
+          type: string
+          enum:
+            - schedule_changed
+            - grade_posted
+            - message
+            - certificate_updated
+            - dorm_updated
+            - elective_updated
+            - correction_updated
+            - demo_payment_recorded
+        title:
+          type: string
+        body:
+          type: string
+        readAt:
+          type: string
+          format: date-time
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        payload:
+          type: object
+          additionalProperties: true
+    NotificationPage:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Notification"
+        nextCursor:
+          type: string
+          nullable: true
+    CertificateType:
+      type: object
+      required: [id, code, title, enabled, deliveryModes]
+      properties:
+        id:
+          type: string
+          format: uuid
+        code:
+          type: string
+        title:
+          type: string
+        enabled:
+          type: boolean
+        deliveryModes:
+          type: array
+          items:
+            type: string
+            enum: [electronic, paper, appointment]
+    CertificateTypeWrite:
+      type: object
+      required: [code, title, deliveryModes]
+      properties:
+        code:
+          type: string
+        title:
+          type: string
+        enabled:
+          type: boolean
+        deliveryModes:
+          type: array
+          items:
+            type: string
+            enum: [electronic, paper, appointment]
+    CertificateRequest:
+      type: object
+      required: [id, typeTitle, deliveryMode, status, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        typeTitle:
+          type: string
+        deliveryMode:
+          type: string
+          enum: [electronic, paper, appointment]
+        status:
+          type: string
+          enum: [pending, in_progress, ready, rejected, issued]
+        comment:
+          type: string
+        appointmentAt:
+          type: string
+          format: date-time
+          nullable: true
+        resultFileId:
+          type: string
+          format: uuid
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+    CertificateReview:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [in_progress, ready, rejected, issued]
+        appointmentAt:
+          type: string
+          format: date-time
+          nullable: true
+        comment:
+          type: string
+        resultFileId:
+          type: string
+          format: uuid
+          nullable: true
+    DormApplication:
+      type: object
+      required: [id, status, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [pending, in_progress, settled, rejected]
+        building:
+          type: string
+        room:
+          type: string
+        comment:
+          type: string
+        contractId:
+          type: string
+          format: uuid
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+    DormReview:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [in_progress, settled, rejected]
+        building:
+          type: string
+        room:
+          type: string
+        contractId:
+          type: string
+          format: uuid
+          nullable: true
+        comment:
+          type: string
+    Contract:
+      type: object
+      required: [id, kind, number, charged, paid, debt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        kind:
+          type: string
+          enum: [tuition, housing, other]
+        number:
+          type: string
+        title:
+          type: string
+        charged:
+          type: string
+        paid:
+          type: string
+        debt:
+          type: string
+        entries:
+          type: array
+          items:
+            $ref: "#/components/schemas/LedgerEntry"
+        demoPayments:
+          type: array
+          description: Учебные попытки. В charged, paid и debt не входят.
+          items:
+            $ref: "#/components/schemas/DemoPayment"
+    ContractWrite:
+      type: object
+      required: [studentId, kind, number]
+      properties:
+        studentId:
+          type: string
+          format: uuid
+        kind:
+          type: string
+          enum: [tuition, housing, other]
+        number:
+          type: string
+        title:
+          type: string
+        openedOn:
+          type: string
+          format: date
+    LedgerEntry:
+      type: object
+      required: [id, direction, amount, occurredOn, reversed]
+      properties:
+        id:
+          type: string
+          format: uuid
+        direction:
+          type: string
+          enum: [charge, payment]
+        amount:
+          type: string
+        occurredOn:
+          type: string
+          format: date
+        description:
+          type: string
+        reversed:
+          type: boolean
+        reversesEntryId:
+          type: string
+          format: uuid
+          nullable: true
+    LedgerWrite:
+      type: object
+      required: [direction, amount, occurredOn]
+      properties:
+        direction:
+          type: string
+          enum: [charge, payment]
+        amount:
+          type: string
+        occurredOn:
+          type: string
+          format: date
+        description:
+          type: string
+        reversesEntryId:
+          type: string
+          format: uuid
+          description: |
+            Если задан, направление, сумма и договор должны совпасть с исходной проводкой.
+            Обе строки остаются в истории и выпадают из долга.
+    DemoPayment:
+      type: object
+      required: [id, educational, result, method, amount, message]
+      properties:
+        id:
+          type: string
+          format: uuid
+        educational:
+          type: boolean
+          enum: [true]
+        result:
+          type: string
+          enum: [demo_completed]
+        method:
+          type: string
+          enum: [card, sbp]
+        amount:
+          type: string
+        message:
+          type: string
+          example: Демо-оплата выполнена, средства не списаны
+    ScholarshipView:
+      type: object
+      required: [grants, payouts]
+      properties:
+        grants:
+          type: array
+          items:
+            $ref: "#/components/schemas/ScholarshipGrant"
+        payouts:
+          type: array
+          items:
+            $ref: "#/components/schemas/ScholarshipPayout"
+    ScholarshipGrant:
+      type: object
+      required: [id, title, amount, active]
+      properties:
+        id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        amount:
+          type: string
+        nextPayoutOn:
+          type: string
+          format: date
+          nullable: true
+        active:
+          type: boolean
+    ScholarshipWrite:
+      type: object
+      required: [studentId, title, amount]
+      properties:
+        studentId:
+          type: string
+          format: uuid
+        title:
+          type: string
+        amount:
+          type: string
+        nextPayoutOn:
+          type: string
+          format: date
+          nullable: true
+    ScholarshipPayout:
+      type: object
+      required: [id, amount, paidOn]
+      properties:
+        id:
+          type: string
+          format: uuid
+        amount:
+          type: string
+        paidOn:
+          type: string
+          format: date
+    PortfolioDocument:
+      type: object
+      required: [id, kind, title]
+      properties:
+        id:
+          type: string
+          format: uuid
+        kind:
+          type: string
+          enum: [portfolio, resume]
+        title:
+          type: string
+        body:
+          type: string
+        fileId:
+          type: string
+          format: uuid
+          nullable: true
+        granteeUserIds:
+          type: array
+          items:
+            type: string
+            format: uuid
+    PortfolioWrite:
+      type: object
+      required: [kind, title]
+      properties:
+        kind:
+          type: string
+          enum: [portfolio, resume]
+        title:
+          type: string
+        body:
+          type: string
+        fileId:
+          type: string
+          format: uuid
+          nullable: true
+    StoredFile:
+      type: object
+      required: [id, originalName, contentType, sizeBytes]
+      properties:
+        id:
+          type: string
+          format: uuid
+        originalName:
+          type: string
+        contentType:
+          type: string
+        sizeBytes:
+          type: integer
+    OrgUnit:
+      type: object
+      required: [id, kind, name]
+      properties:
+        id:
+          type: string
+          format: uuid
+        parentId:
+          type: string
+          format: uuid
+          nullable: true
+        kind:
+          type: string
+          enum: [institute, faculty, department, other]
+        name:
+          type: string
+    OrgUnitWrite:
+      type: object
+      required: [kind, name]
+      properties:
+        parentId:
+          type: string
+          format: uuid
+          nullable: true
+        kind:
+          type: string
+          enum: [institute, faculty, department, other]
+        name:
+          type: string
+    Semester:
+      type: object
+      required: [id, title, startsOn, endsOn, status]
+      properties:
+        id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        startsOn:
+          type: string
+          format: date
+        endsOn:
+          type: string
+          format: date
+        status:
+          type: string
+          enum: [planned, active, closed]
+        electiveOpenOn:
+          type: string
+          format: date
+          nullable: true
+        electiveCloseOn:
+          type: string
+          format: date
+          nullable: true
+        electiveChangeUntil:
+          type: string
+          format: date
+          nullable: true
+    SemesterWrite:
+      type: object
+      required: [title, startsOn, endsOn]
+      properties:
+        title:
+          type: string
+        startsOn:
+          type: string
+          format: date
+        endsOn:
+          type: string
+          format: date
+        status:
+          type: string
+          enum: [planned, active, closed]
+        electiveOpenOn:
+          type: string
+          format: date
+          nullable: true
+        electiveCloseOn:
+          type: string
+          format: date
+          nullable: true
+        electiveChangeUntil:
+          type: string
+          format: date
+          nullable: true
+    StudyGroup:
+      type: object
+      required: [id, name, course, entryYear]
+      properties:
+        id:
+          type: string
+          format: uuid
+        orgUnitId:
+          type: string
+          format: uuid
+        name:
+          type: string
+        course:
+          type: integer
+        entryYear:
+          type: integer
+    StudyGroupWrite:
+      type: object
+      required: [orgUnitId, name, course, entryYear]
+      properties:
+        orgUnitId:
+          type: string
+          format: uuid
+        name:
+          type: string
+        course:
+          type: integer
+        entryYear:
+          type: integer
+    Discipline:
+      type: object
+      required: [id, code, name]
+      properties:
+        id:
+          type: string
+          format: uuid
+        code:
+          type: string
+        name:
+          type: string
+        orgUnitId:
+          type: string
+          format: uuid
+          nullable: true
+    DisciplineWrite:
+      type: object
+      required: [code, name]
+      properties:
+        code:
+          type: string
+        name:
+          type: string
+        orgUnitId:
+          type: string
+          format: uuid
+          nullable: true
+    ElectiveBlock:
+      type: object
+      required: [id, groupId, semesterId, title]
+      properties:
+        id:
+          type: string
+          format: uuid
+        groupId:
+          type: string
+          format: uuid
+        semesterId:
+          type: string
+          format: uuid
+        title:
+          type: string
+    ElectiveBlockWrite:
+      type: object
+      required: [groupId, semesterId, title]
+      properties:
+        groupId:
+          type: string
+          format: uuid
+        semesterId:
+          type: string
+          format: uuid
+        title:
+          type: string
+    CurriculumItem:
+      type: object
+      required: [id, groupId, disciplineId, semesterId, kind, credits]
+      properties:
+        id:
+          type: string
+          format: uuid
+        groupId:
+          type: string
+          format: uuid
+        disciplineId:
+          type: string
+          format: uuid
+        semesterId:
+          type: string
+          format: uuid
+        kind:
+          type: string
+          enum: [required, elective]
+        credits:
+          type: string
+        teacherUserId:
+          type: string
+          format: uuid
+          nullable: true
+        electiveBlockId:
+          type: string
+          format: uuid
+          nullable: true
+    CurriculumItemWrite:
+      type: object
+      required: [groupId, disciplineId, semesterId, kind]
+      properties:
+        groupId:
+          type: string
+          format: uuid
+        disciplineId:
+          type: string
+          format: uuid
+        semesterId:
+          type: string
+          format: uuid
+        kind:
+          type: string
+          enum: [required, elective]
+        credits:
+          type: string
+        teacherUserId:
+          type: string
+          format: uuid
+          nullable: true
+        electiveBlockId:
+          type: string
+          format: uuid
+          nullable: true
+          description: Обязателен для kind elective и пуст для required. В блоке студент выбирает одну дисциплину.
+    LessonWrite:
+      type: object
+      required: [semesterId, disciplineId, startsAt, endsAt, groupIds]
+      properties:
+        semesterId:
+          type: string
+          format: uuid
+        disciplineId:
+          type: string
+          format: uuid
+        teacherUserId:
+          type: string
+          format: uuid
+          nullable: true
+        startsAt:
+          type: string
+          format: date-time
+        endsAt:
+          type: string
+          format: date-time
+        room:
+          type: string
+        note:
+          type: string
+        groupIds:
+          type: array
+          items:
+            type: string
+            format: uuid
+    AdminUser:
+      type: object
+      required: [id, role, status, lastName, firstName, permissions]
+      properties:
+        id:
+          type: string
+          format: uuid
+        role:
+          $ref: "#/components/schemas/Role"
+        status:
+          type: string
+          enum: [pending, active, blocked]
+        lastName:
+          type: string
+        firstName:
+          type: string
+        middleName:
+          type: string
+        login:
+          type: string
+          nullable: true
+        email:
+          type: string
+          nullable: true
+        phone:
+          type: string
+          nullable: true
+        permissions:
+          type: array
+          items:
+            type: string
+    StaffUserWrite:
+      type: object
+      required: [role, lastName, firstName, login, password]
+      properties:
+        role:
+          type: string
+          enum: [employee, admin]
+        lastName:
+          type: string
+        firstName:
+          type: string
+        middleName:
+          type: string
+        login:
+          type: string
+        email:
+          type: string
+        phone:
+          type: string
+        password:
+          type: string
+          format: password
+        position:
+          type: string
+        orgUnitId:
+          type: string
+          format: uuid
+          nullable: true
+        permissions:
+          type: array
+          items:
+            type: string
+    StaffUserUpdate:
+      type: object
+      description: Роль при правке не меняется. Пустой пароль оставляет прежний.
+      required: [lastName, firstName, login]
+      properties:
+        lastName:
+          type: string
+        firstName:
+          type: string
+        middleName:
+          type: string
+        login:
+          type: string
+        email:
+          type: string
+        phone:
+          type: string
+        password:
+          type: string
+          format: password
+          description: Пустое поле пароль не меняет
+        position:
+          type: string
+        orgUnitId:
+          type: string
+          format: uuid
+          nullable: true
+        permissions:
+          type: array
+          items:
+            type: string
+    UserPage:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminUser"
+        nextCursor:
+          type: string
+          nullable: true
+    RatingFormula:
+      type: object
+      required: [id, name, definition]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        definition:
+          type: object
+          additionalProperties: true
+    RatingFormulaWrite:
+      type: object
+      required: [name, definition]
+      properties:
+        name:
+          type: string
+        definition:
+          type: object
+          required: [type, of]
+          properties:
+            type:
+              type: string
+              enum: [weighted_average, mean, sum]
+            of:
+              type: string
+              enum: [final_numeric_grades]
+            weight:
+              type: string
+              enum: [credits]
+    ProfileCorrection:
+      type: object
+      required: [id, fieldName, requestedValue, status, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        fieldName:
+          type: string
+          enum: [group, course, record_book_number, student_card_number, funding, lives_in_dorm]
+        requestedValue:
+          type: string
+        comment:
+          type: string
+        status:
+          type: string
+          enum: [pending, applied, rejected]
+        createdAt:
+          type: string
+          format: date-time
+    ProfileCorrectionCreate:
+      type: object
+      required: [fieldName, requestedValue]
+      properties:
+        fieldName:
+          type: string
+          enum: [group, course, record_book_number, student_card_number, funding, lives_in_dorm]
+        requestedValue:
+          type: string
+        comment:
+          type: string
+    ImportIssue:
+      type: object
+      required: [rowNumber, message]
+      properties:
+        rowNumber:
+          type: integer
+        fieldName:
+          type: string
+        message:
+          type: string
+    ImportBatch:
+      type: object
+      required: [id, domain, mode, status, acceptedCount, rejectedCount, issues]
+      properties:
+        id:
+          type: string
+          format: uuid
+        domain:
+          type: string
+        mode:
+          type: string
+          enum: [insert_only, upsert]
+        status:
+          type: string
+          enum: [preview, applied, failed]
+        acceptedCount:
+          type: integer
+        rejectedCount:
+          type: integer
+        issues:
+          type: array
+          items:
+            $ref: "#/components/schemas/ImportIssue"
+    AuditEvent:
+      type: object
+      required: [id, action, entityType, createdAt]
+      properties:
+        id:
+          type: integer
+        actorUserId:
+          type: string
+          format: uuid
+          nullable: true
+        action:
+          type: string
+        entityType:
+          type: string
+        entityId:
+          type: string
+        payload:
+          type: object
+          additionalProperties: true
+        createdAt:
+          type: string
+          format: date-time
+    AuditPage:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/AuditEvent"
+        nextCursor:
+          type: string
+          nullable: true

@@ -1,0 +1,43 @@
+# Локальный контур: PostgreSQL и образ API.
+# Первый запуск: скопировать .env.example в .env, затем docker compose up --build.
+# Пароль базы и JWT_SECRET читаются только из окружения, в образ не копируются.
+
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-lkbonch}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-lkbonch}
+      POSTGRES_DB: ${POSTGRES_DB:-lkbonch}
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-lkbonch} -d ${POSTGRES_DB:-lkbonch}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  api:
+    build: .
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-lkbonch}:${POSTGRES_PASSWORD:-lkbonch}@db:5432/${POSTGRES_DB:-lkbonch}
+      JWT_SECRET: ${JWT_SECRET:-dev-only-change-me}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:4200}
+      MIGRATIONS_DIR: /db
+    ports:
+      - "127.0.0.1:8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - files:/data/files
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  files:
