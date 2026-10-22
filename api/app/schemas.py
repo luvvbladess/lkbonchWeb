@@ -283,6 +283,8 @@ class Diary(ApiModel):
 
 class TeachingAssignment(ApiModel):
     group_discipline_id: UUID
+    discipline_id: UUID
+    semester_id: UUID
     discipline_name: str
     group_name: str
     semester_title: str

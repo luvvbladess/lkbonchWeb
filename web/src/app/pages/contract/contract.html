@@ -1,0 +1,34 @@
+<section class="page">
+  <a routerLink="/services">К услугам</a>
+  @if (loading()) {
+    <div class="skeleton"></div>
+  } @else if (error()) {
+    <div class="banner" role="alert">{{ error() }}</div>
+  } @else if (contract(); as item) {
+    <h1>{{ kind(item.kind) }} {{ item.number }}</h1>
+    <p>{{ item.title }}</p>
+    <p class="nums">Начислено {{ sum(item.charged) }} · оплачено {{ sum(item.paid) }} · долг {{ sum(item.debt) }}</p>
+    <div class="demo">
+      <strong>Учебная операция</strong>
+      <p>Это не платёж. Деньги не списываются, долг по договору не меняется.</p>
+      <form class="stack" [formGroup]="form" (submit)="$event.preventDefault(); pay()">
+        <mat-form-field class="full">
+          <mat-label>Сумма</mat-label>
+          <input matInput formControlName="amount" inputmode="decimal" />
+        </mat-form-field>
+        <mat-radio-group formControlName="method">
+          <mat-radio-button value="card">Карта</mat-radio-button>
+          <mat-radio-button value="sbp">СБП</mat-radio-button>
+        </mat-radio-group>
+        <button matButton="tonal" type="submit">Провести демо-оплату</button>
+      </form>
+      @for (payment of item.demoPayments ?? []; track payment.id) {
+        <p>{{ payment.message }} · {{ sum(payment.amount) }}</p>
+      }
+    </div>
+    <h2>Операции</h2>
+    @for (entry of item.entries ?? []; track entry.id) {
+      <p class="nums">{{ when(entry.occurredOn) }} · {{ entry.direction === 'charge' ? 'Начисление' : 'Оплата' }} {{ sum(entry.amount) }} · {{ entry.description }}</p>
+    }
+  }
+</section>

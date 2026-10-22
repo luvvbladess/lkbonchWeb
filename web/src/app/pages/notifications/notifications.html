@@ -1,0 +1,24 @@
+<section class="page">
+  <div class="row">
+    <h1>Уведомления</h1>
+    <button matButton="text" type="button" (click)="readAll()">Прочитать все</button>
+  </div>
+  @if (loading()) {
+    <div class="skeleton"></div>
+  } @else if (error()) {
+    <div class="banner" role="alert">{{ error() }}</div>
+  } @else if (items().length === 0) {
+    <div class="empty"><span>Уведомлений нет.</span></div>
+  } @else {
+    @for (item of items(); track item.id) {
+      <button class="lesson" type="button" (click)="read(item)">
+        <span class="nums">{{ item.readAt ? '' : '●' }}</span>
+        <span>
+          <strong>{{ item.title }}</strong>
+          <span class="muted">{{ item.body }}</span>
+          <span class="muted nums">{{ when(item.createdAt) }}</span>
+        </span>
+      </button>
+    }
+  }
+</section>

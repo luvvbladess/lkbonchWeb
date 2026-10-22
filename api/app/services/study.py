@@ -105,7 +105,8 @@ def teaching(conn, user) -> list[TeachingAssignment]:
     rows = many(
         conn,
         """
-        SELECT gd.id, d.name AS discipline_name, g.name AS group_name, s.title AS semester_title, gd.kind
+        SELECT gd.id, gd.discipline_id, gd.semester_id, d.name AS discipline_name,
+               g.name AS group_name, s.title AS semester_title, gd.kind
         FROM group_disciplines gd
         JOIN disciplines d ON d.id = gd.discipline_id
         JOIN groups g ON g.id = gd.group_id
@@ -118,6 +119,8 @@ def teaching(conn, user) -> list[TeachingAssignment]:
     return [
         TeachingAssignment(
             group_discipline_id=row["id"],
+            discipline_id=row["discipline_id"],
+            semester_id=row["semester_id"],
             discipline_name=row["discipline_name"],
             group_name=row["group_name"],
             semester_title=row["semester_title"],

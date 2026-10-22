@@ -1,0 +1,58 @@
+<section class="page">
+  <a routerLink="/diary">К журналу</a>
+  @if (assignment(); as item) {
+    <h1>{{ item.disciplineName }}</h1>
+    <p class="muted">{{ item.groupName }} · {{ item.semesterTitle }}</p>
+  }
+  @if (loading()) {
+    <div class="skeleton"></div>
+  } @else if (error()) {
+    <div class="banner" role="alert">{{ error() }}</div>
+  } @else {
+    @for (student of students(); track student.studentId) {
+      <article class="stack">
+        <strong>{{ student.studentName }}</strong>
+        @if (student.grades.length === 0) {
+          <span class="muted">Оценок пока нет</span>
+        }
+        @for (grade of student.grades; track grade.id) {
+          <span>{{ kind(grade.kind) }} {{ grade.title }}: <span class="nums">{{ grade.label || grade.score }}</span></span>
+        }
+      </article>
+    }
+    <h2>Новая оценка</h2>
+    <form class="stack" [formGroup]="form" (submit)="$event.preventDefault(); save()">
+      <mat-form-field class="full">
+        <mat-label>Студент</mat-label>
+        <mat-select formControlName="studentId">
+          @for (student of students(); track student.studentId) {
+            <mat-option [value]="student.studentId">{{ student.studentName }}</mat-option>
+          }
+        </mat-select>
+      </mat-form-field>
+      <mat-form-field class="full">
+        <mat-label>Вид</mat-label>
+        <mat-select formControlName="kind">
+          <mat-option value="current">Текущая</mat-option>
+          <mat-option value="passfail">Зачёт</mat-option>
+          <mat-option value="graded_credit">Диф. зачёт</mat-option>
+          <mat-option value="exam">Экзамен</mat-option>
+        </mat-select>
+      </mat-form-field>
+      <mat-form-field class="full">
+        <mat-label>Название</mat-label>
+        <input matInput formControlName="title" />
+      </mat-form-field>
+      <mat-form-field class="full">
+        <mat-label>Балл</mat-label>
+        <input matInput formControlName="score" inputmode="decimal" />
+      </mat-form-field>
+      <mat-form-field class="full">
+        <mat-label>Словами</mat-label>
+        <input matInput formControlName="label" />
+      </mat-form-field>
+      <mat-checkbox formControlName="isFinal">Итоговая</mat-checkbox>
+      <button matButton="filled" type="submit">Поставить</button>
+    </form>
+  }
+</section>

@@ -1,0 +1,69 @@
+<section class="page">
+  <h1>Чаты</h1>
+  @if (error()) {
+    <div class="banner" role="alert">
+      <mat-icon>error_outline</mat-icon>
+      <span>{{ error() }}</span>
+    </div>
+  }
+  <div class="chat-split" [class.open]="!!current()">
+    <div class="chat-list">
+      <mat-form-field class="full">
+        <mat-label>Поиск</mat-label>
+        <input matInput [formControl]="search" />
+      </mat-form-field>
+      @if (loading()) {
+        <div class="skeleton"></div>
+      } @else if (conversations().length === 0) {
+        <div class="empty"><span>Чатов нет.</span></div>
+      }
+      @for (chat of conversations(); track chat.id) {
+        <a href="" [class.selected]="current()?.id === chat.id" (click)="$event.preventDefault(); select(chat.id)">
+          <strong>{{ chat.title }}</strong>
+          <span class="row">
+            @if (chat.closed) {
+              <app-status tone="neutral" icon="lock" label="Семестр закрыт" />
+            }
+            @if (chat.unreadCount) {
+              <app-status tone="info" icon="mark_chat_unread" [label]="'' + chat.unreadCount" />
+            }
+          </span>
+          <span class="muted">{{ chat.lastMessage?.deleted ? 'Сообщение удалено' : chat.lastMessage?.body }}</span>
+        </a>
+      }
+    </div>
+    <div class="thread">
+      @if (!current()) {
+        <div class="empty"><span>Выберите чат.</span></div>
+      } @else {
+        <div class="row">
+          <button matIconButton type="button" (click)="back()" aria-label="К списку чатов"><mat-icon>arrow_back</mat-icon></button>
+          <strong>{{ current()?.title }}</strong>
+        </div>
+        <div class="messages">
+          @for (message of messages(); track message.id) {
+            <article class="bubble" [class.mine]="message.authorUserId === session.me()?.id">
+              <div class="who">{{ message.authorName }}</div>
+              <div>{{ message.deleted ? 'Сообщение удалено' : message.body }}</div>
+              <div class="when nums">{{ time(message.createdAt) }}{{ message.editedAt ? ' · изменено' : '' }}</div>
+              @if (!message.deleted && message.authorUserId === session.me()?.id && !current()?.closed) {
+                <div class="row">
+                  <button matButton="text" type="button" (click)="edit(message)">Изменить</button>
+                  <button matButton="text" type="button" (click)="remove(message)">Удалить</button>
+                </div>
+              }
+            </article>
+          }
+        </div>
+        @if (current()?.closed) {
+          <div class="banner">Семестр закрыт, новые сообщения не отправляются.</div>
+        } @else {
+          <form class="composer" (submit)="$event.preventDefault(); send()">
+            <textarea [formControl]="draft" rows="2" placeholder="Сообщение" (keydown.enter)="onEnter($event)"></textarea>
+            <button matButton="filled" type="submit">Отправить</button>
+          </form>
+        }
+      }
+    </div>
+  </div>
+</section>

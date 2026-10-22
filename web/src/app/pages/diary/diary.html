@@ -1,0 +1,74 @@
+<section class="page">
+  <h1>{{ session.me()?.role === 'employee' ? 'Журнал' : 'Дневник' }}</h1>
+  @if (loading()) {
+    <div class="skeleton"></div>
+  } @else if (error()) {
+    <div class="banner" role="alert">{{ error() }}</div>
+  } @else if (session.me()?.role === 'employee') {
+    @if (teaching().length === 0) {
+      <div class="empty"><mat-icon>menu_book</mat-icon><span>За вами не закреплено дисциплин.</span></div>
+    }
+    @for (item of teaching(); track item.groupDisciplineId) {
+      <a class="lesson" [routerLink]="['/diary', item.groupDisciplineId]">
+        <span class="nums">{{ item.kind === 'elective' ? 'Выбор' : 'Обяз.' }}</span>
+        <span>
+          <strong>{{ item.disciplineName }}</strong>
+          <span class="muted">{{ item.groupName }} · {{ item.semesterTitle }}</span>
+        </span>
+      </a>
+    }
+  } @else {
+    @if (rating(); as rating) {
+      <p>Рейтинг <strong class="nums">{{ ratingText(rating.score) }}</strong></p>
+    }
+    @if (debts().length) {
+      <h2>Задолженности</h2>
+      @for (debt of debts(); track debt.id) {
+        <div class="row">
+          <span>{{ debt.disciplineName }}</span>
+          <app-status tone="error" icon="warning" label="Задолженность" />
+          <span class="nums">{{ debt.label || debt.score }}</span>
+        </div>
+      }
+    }
+    @if (diary(); as diary) {
+      <div class="row">
+        @for (item of diary.semesters; track item.semesterId; let index = $index) {
+          <button matButton="outlined" type="button" (click)="semester.set(index)">{{ item.title }}</button>
+        }
+      </div>
+      @if (diary.semesters[semester()]; as current) {
+        @for (grade of current.grades; track grade.id) {
+          <div class="row">
+            <span>{{ grade.disciplineName }}</span>
+            <span class="muted">{{ kind(grade.kind) }} {{ grade.title }}</span>
+            <span class="nums">{{ grade.label || score(grade.score) }}</span>
+            @if (grade.isDebt) {
+              <app-status tone="error" icon="warning" label="Задолженность" />
+            } @else if (grade.isFinal && grade.label === 'зачтено') {
+              <app-status tone="success" icon="task_alt" label="Зачёт" />
+            }
+          </div>
+        }
+      }
+    }
+    @if (electives().length) {
+      <h2>Выборные</h2>
+      @for (offer of electives(); track offer.groupDisciplineId) {
+        <div class="stack">
+          <strong>{{ offer.disciplineName }}</strong>
+          <span class="muted">{{ offer.blockTitle }} · {{ credits(offer.credits) }} з.е.</span>
+          @if (offer.application; as application) {
+            <app-status [tone]="status(application.status).tone" [icon]="status(application.status).icon" [label]="status(application.status).label" />
+            @if (application.status === 'pending' || application.status === 'approved') {
+              <button matButton="text" type="button" (click)="withdraw(application.id)">Отозвать</button>
+            }
+          }
+          @if (!offer.application || offer.application.status === 'withdrawn' || offer.application.status === 'rejected') {
+            <button matButton="filled" type="button" (click)="choose(offer.groupDisciplineId)">Выбрать</button>
+          }
+        </div>
+      }
+    }
+  }
+</section>

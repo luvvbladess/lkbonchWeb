@@ -1,0 +1,98 @@
+<div class="login-wrap">
+  <section class="login-card">
+    <div class="login-stripe"></div>
+    <div class="login-body">
+      <div class="brand">
+        <svg class="brand-mark" viewBox="0 0 40 40" aria-hidden="true">
+          <rect width="40" height="40" rx="12" fill="var(--lk-brand)" />
+          <path d="M11 27c4.2-6 13.8-6 18 0" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" />
+          <path d="M8 22c6-8 18-8 24 0" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" />
+          <path d="M5 17c8-10 22-10 30 0" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" />
+        </svg>
+        <div class="brand-copy">
+          <strong>{{ university()?.shortName || 'Личный кабинет' }}</strong>
+          <span>{{ university()?.name || 'Университет' }}</span>
+        </div>
+      </div>
+
+      <mat-button-toggle-group [value]="mode()" (change)="mode.set($event.value)" hideSingleSelectionIndicator>
+        <mat-button-toggle value="student">Студент</mat-button-toggle>
+        <mat-button-toggle value="staff">Сотрудник</mat-button-toggle>
+      </mat-button-toggle-group>
+
+      @if (mode() === 'student') {
+        <form class="stack" [formGroup]="step() === 'login' ? staff : activation" (submit)="$event.preventDefault(); step() === 'request' ? requestCode() : step() === 'login' ? login() : confirm()">
+          @if (step() === 'login') {
+            <mat-form-field class="full">
+              <mat-label>Логин</mat-label>
+              <input matInput formControlName="login" autocomplete="username" />
+            </mat-form-field>
+            <mat-form-field class="full">
+              <mat-label>Пароль</mat-label>
+              <input matInput formControlName="password" type="password" autocomplete="current-password" />
+            </mat-form-field>
+            <button matButton="filled" type="submit" [disabled]="busy()">Войти</button>
+            <button matButton="text" type="button" (click)="step.set('request')">Получить код активации</button>
+          } @else if (step() === 'request') {
+            <mat-form-field class="full">
+              <mat-label>Фамилия</mat-label>
+              <input matInput formControlName="lastName" autocomplete="family-name" />
+            </mat-form-field>
+            <mat-form-field class="full">
+              <mat-label>Имя</mat-label>
+              <input matInput formControlName="firstName" autocomplete="given-name" />
+            </mat-form-field>
+            <mat-form-field class="full">
+              <mat-label>Отчество</mat-label>
+              <input matInput formControlName="middleName" autocomplete="additional-name" />
+            </mat-form-field>
+            <mat-form-field class="full">
+              <mat-label>Студенческий или зачётка</mat-label>
+              <input matInput formControlName="identifier" autocomplete="off" />
+            </mat-form-field>
+            <button matButton="filled" type="submit" [disabled]="busy()">Получить код</button>
+            <button matButton="text" type="button" (click)="step.set('login')">Уже есть логин</button>
+          } @else {
+            <p>{{ hint() }}</p>
+            <mat-form-field class="full">
+              <mat-label>Код</mat-label>
+              <input matInput formControlName="code" inputmode="numeric" autocomplete="one-time-code" />
+            </mat-form-field>
+            <mat-form-field class="full">
+              <mat-label>Логин</mat-label>
+              <input matInput formControlName="login" autocomplete="username" />
+            </mat-form-field>
+            <mat-form-field class="full">
+              <mat-label>Пароль</mat-label>
+              <input matInput formControlName="password" [type]="showPassword() ? 'text' : 'password'" autocomplete="new-password" />
+              <button matIconButton matSuffix type="button" (click)="showPassword.set(!showPassword())" [attr.aria-label]="showPassword() ? 'Скрыть пароль' : 'Показать пароль'">
+                <mat-icon>{{ showPassword() ? 'visibility_off' : 'visibility' }}</mat-icon>
+              </button>
+            </mat-form-field>
+            <button matButton="filled" type="submit" [disabled]="busy()">Активировать</button>
+            <button matButton="text" type="button" (click)="step.set('request')">Назад</button>
+          }
+        </form>
+      } @else {
+        <form class="stack" [formGroup]="staff" (submit)="$event.preventDefault(); login()">
+          <mat-form-field class="full">
+            <mat-label>Логин, почта или телефон</mat-label>
+            <input matInput formControlName="login" autocomplete="username" />
+          </mat-form-field>
+          <mat-form-field class="full">
+            <mat-label>Пароль</mat-label>
+            <input matInput formControlName="password" type="password" autocomplete="current-password" />
+          </mat-form-field>
+          <button matButton="filled" type="submit" [disabled]="busy()">Войти</button>
+        </form>
+      }
+
+      @if (error()) {
+        <p class="banner" role="alert">{{ error() }}</p>
+      }
+      @if (mocks) {
+        <p class="muted">Локальный просмотр: студент <span class="nums">student / student12</span>, сотрудник <span class="nums">teacher / teacher12</span>. Код активации <span class="nums">000000</span>.</p>
+      }
+    </div>
+  </section>
+</div>

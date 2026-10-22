@@ -1,0 +1,65 @@
+<div class="shell" [class]="layout()">
+  <header class="topbar">
+    <div class="brand">
+      <svg class="brand-mark" viewBox="0 0 40 40" aria-hidden="true">
+        <rect width="40" height="40" rx="12" fill="var(--lk-brand)" />
+        <path d="M11 27c4.2-6 13.8-6 18 0" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" />
+        <path d="M8 22c6-8 18-8 24 0" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" />
+        <path d="M5 17c8-10 22-10 30 0" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" />
+      </svg>
+      <div class="brand-copy">
+        <strong>{{ session.university()?.shortName || 'Кабинет' }}</strong>
+        <span>{{ name() }}</span>
+      </div>
+    </div>
+    <span class="grow"></span>
+    <button matIconButton type="button" (click)="session.toggleTheme()" [attr.aria-label]="session.dark() ? 'Светлая тема' : 'Тёмная тема'">
+      <mat-icon>{{ session.dark() ? 'light_mode' : 'dark_mode' }}</mat-icon>
+    </button>
+    <a matIconButton routerLink="/notifications" aria-label="Уведомления">
+      <mat-icon>notifications</mat-icon>
+    </a>
+    @if (unread() > 0) {
+      <span class="status" data-tone="info">{{ unread() }}</span>
+    }
+    <button matIconButton type="button" (click)="logout()" aria-label="Выйти">
+      <mat-icon>logout</mat-icon>
+    </button>
+  </header>
+
+  @if (layout() !== 'compact') {
+    <nav class="side" [attr.aria-label]="'Разделы кабинета'">
+      @for (item of items(); track item.path) {
+        <a class="nav-link" [routerLink]="item.path" routerLinkActive="active">
+          <mat-icon>{{ item.icon }}</mat-icon>
+          <span>{{ item.label }}</span>
+        </a>
+      }
+    </nav>
+  }
+
+  <main class="content">
+    @if (offline()) {
+      <div class="banner offline" role="status">
+        <mat-icon>cloud_off</mat-icon>
+        <span>Нет сети. Данные могут быть устаревшими.</span>
+      </div>
+    }
+    <router-outlet />
+  </main>
+
+  @if (layout() === 'compact') {
+    <nav class="bottom" aria-label="Разделы кабинета">
+      @for (item of items(); track item.path) {
+        <a class="nav-link" [routerLink]="item.path" routerLinkActive="active">
+          <mat-icon>{{ item.icon }}</mat-icon>
+          <span>{{ item.label }}</span>
+        </a>
+      }
+    </nav>
+  }
+</div>
+
+@if (session.notice()) {
+  <div class="toast" role="status">{{ session.notice() }}</div>
+}

@@ -1,0 +1,79 @@
+<section class="page">
+  <h1>Услуги</h1>
+  @if (tabs().length > 1) {
+    <mat-button-toggle-group [value]="tab()" (change)="tab.set($event.value)" hideSingleSelectionIndicator>
+      @for (item of tabs(); track item.id) {
+        <mat-button-toggle [value]="item.id">{{ item.label }}</mat-button-toggle>
+      }
+    </mat-button-toggle-group>
+  }
+  @if (error()) {
+    <div class="banner" role="alert">{{ error() }}</div>
+  }
+  @if (loading()) {
+    <div class="skeleton"></div>
+  } @else if (tab() === 'certificates') {
+    <form class="stack" [formGroup]="certificateForm" (submit)="$event.preventDefault(); orderCertificate()">
+      <h2>Новая справка</h2>
+      <mat-form-field class="full">
+        <mat-label>Вид</mat-label>
+        <mat-select formControlName="typeId">
+          @for (type of types(); track type.id) {
+            <mat-option [value]="type.id">{{ type.title }}</mat-option>
+          }
+        </mat-select>
+      </mat-form-field>
+      <mat-form-field class="full">
+        <mat-label>Как получить</mat-label>
+        <mat-select formControlName="deliveryMode">
+          <mat-option value="electronic">Электронная</mat-option>
+          <mat-option value="paper">Бумажная</mat-option>
+          <mat-option value="appointment">Очно</mat-option>
+        </mat-select>
+      </mat-form-field>
+      <mat-form-field class="full">
+        <mat-label>Комментарий</mat-label>
+        <input matInput formControlName="comment" />
+      </mat-form-field>
+      <button matButton="filled" type="submit">Заказать</button>
+    </form>
+    @for (item of certificates(); track item.id) {
+      <article class="stack">
+        <strong>{{ item.typeTitle }}</strong>
+        <span class="muted">{{ delivery(item.deliveryMode) }} · {{ when(item.createdAt) }}</span>
+        <app-status [tone]="status(item.status).tone" [icon]="status(item.status).icon" [label]="status(item.status).label" />
+        @if (item.comment) {
+          <span>{{ item.comment }}</span>
+        }
+      </article>
+    }
+  } @else if (tab() === 'dorm') {
+    <form class="stack" (submit)="$event.preventDefault(); orderDorm()">
+      <mat-form-field class="full">
+        <mat-label>Комментарий к заявке</mat-label>
+        <input matInput [formControl]="dormComment" />
+      </mat-form-field>
+      <button matButton="filled" type="submit">Подать заявку</button>
+    </form>
+    @if (dorms().length === 0) {
+      <div class="empty"><span>Заявок на общежитие нет.</span></div>
+    }
+    @for (item of dorms(); track item.id) {
+      <article class="stack">
+        <app-status [tone]="status(item.status).tone" [icon]="status(item.status).icon" [label]="status(item.status).label" />
+        <span>{{ item.building }} {{ item.room }}</span>
+        <span class="muted">{{ item.comment }}</span>
+      </article>
+    }
+  } @else {
+    @for (item of contracts(); track item.id) {
+      <a class="lesson" [routerLink]="['/services/contracts', item.id]">
+        <span class="nums">{{ sum(item.debt) }}</span>
+        <span>
+          <strong>{{ kind(item.kind) }} {{ item.number }}</strong>
+          <span class="muted">{{ item.title }} · долг {{ sum(item.debt) }}</span>
+        </span>
+      </a>
+    }
+  }
+</section>

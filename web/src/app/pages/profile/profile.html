@@ -1,0 +1,117 @@
+<section class="page">
+  <h1>Профиль</h1>
+  @if (error()) {
+    <div class="banner" role="alert">{{ error() }}</div>
+  }
+  <p><strong>{{ name() }}</strong></p>
+  @if (session.me()?.student; as student) {
+    <p class="muted">{{ student.orgUnitName }} · {{ student.groupName }} · {{ student.course }} курс · {{ funding(student.funding) }}</p>
+    <p class="nums muted">Зачётка {{ student.recordBookNumber }} · студенческий {{ student.studentCardNumber }}</p>
+  }
+  @if (session.me()?.employee; as employee) {
+    <p class="muted">{{ employee.position }} · {{ employee.orgUnitName }}</p>
+  }
+
+  @if (card(); as card) {
+    <h2>Студенческий</h2>
+    <canvas #qr width="196" height="196" aria-label="QR студенческого"></canvas>
+    <button matButton="outlined" type="button" (click)="bright.set(true)">Показать ярко</button>
+    @if (bright()) {
+      <div class="card-screen">
+        <h2>{{ card.fullName }}</h2>
+        <p class="nums">{{ card.groupName }} · {{ card.studentCardNumber }}</p>
+        <canvas #qrBright width="280" height="280" aria-label="QR студенческого крупно"></canvas>
+        <button matButton="filled" type="button" (click)="bright.set(false)">Закрыть</button>
+      </div>
+    }
+  }
+
+  <h2>Контакты</h2>
+  <form class="stack" [formGroup]="contacts" (submit)="$event.preventDefault(); saveContacts()">
+    <mat-form-field class="full">
+      <mat-label>Почта</mat-label>
+      <input matInput formControlName="email" type="email" autocomplete="email" />
+    </mat-form-field>
+    <mat-form-field class="full">
+      <mat-label>Телефон</mat-label>
+      <input matInput formControlName="phone" type="tel" autocomplete="tel" />
+    </mat-form-field>
+    <button matButton="filled" type="submit">Сохранить</button>
+  </form>
+
+  <h2>Пароль</h2>
+  <form class="stack" [formGroup]="password" (submit)="$event.preventDefault(); savePassword()">
+    <mat-form-field class="full">
+      <mat-label>Текущий пароль</mat-label>
+      <input matInput type="password" formControlName="currentPassword" autocomplete="current-password" />
+    </mat-form-field>
+    <mat-form-field class="full">
+      <mat-label>Новый пароль</mat-label>
+      <input matInput type="password" formControlName="newPassword" autocomplete="new-password" />
+    </mat-form-field>
+    <button matButton="outlined" type="submit">Сменить пароль</button>
+  </form>
+
+  @if (session.me()?.role === 'student') {
+    <h2>Исправление данных</h2>
+    <form class="stack" [formGroup]="correction" (submit)="$event.preventDefault(); sendCorrection()">
+      <mat-form-field class="full">
+        <mat-label>Поле</mat-label>
+        <mat-select formControlName="fieldName">
+          <mat-option value="group">Группа</mat-option>
+          <mat-option value="course">Курс</mat-option>
+          <mat-option value="record_book_number">Номер зачётки</mat-option>
+          <mat-option value="student_card_number">Номер студенческого</mat-option>
+          <mat-option value="funding">Основа обучения</mat-option>
+          <mat-option value="lives_in_dorm">Общежитие</mat-option>
+        </mat-select>
+      </mat-form-field>
+      <mat-form-field class="full">
+        <mat-label>Как должно быть</mat-label>
+        <input matInput formControlName="requestedValue" />
+      </mat-form-field>
+      <mat-form-field class="full">
+        <mat-label>Комментарий</mat-label>
+        <input matInput formControlName="comment" />
+      </mat-form-field>
+      <button matButton="filled" type="submit">Отправить</button>
+    </form>
+    @for (item of corrections(); track item.id) {
+      <div class="row">
+        <span>{{ field(item.fieldName) }}: {{ item.requestedValue }}</span>
+        <app-status [tone]="status(item.status).tone" [icon]="status(item.status).icon" [label]="status(item.status).label" />
+      </div>
+    }
+  }
+
+  @if (scholarship(); as view) {
+    <h2>Стипендия</h2>
+    @for (grant of view.grants; track grant.id) {
+      <p>{{ grant.title }} · <span class="nums">{{ sum(grant.amount) }}</span>@if (grant.nextPayoutOn) { · следующая {{ when(grant.nextPayoutOn) }} }</p>
+    }
+    @for (payout of view.payouts; track payout.id) {
+      <p class="muted nums">Выплачено {{ sum(payout.amount) }} · {{ when(payout.paidOn) }}</p>
+    }
+  }
+
+  @if (session.me()?.enabledSections?.includes('portfolio')) {
+    <h2>Портфолио</h2>
+    <form class="stack" [formGroup]="document" (submit)="$event.preventDefault(); addDocument()">
+      <mat-form-field class="full">
+        <mat-label>Название</mat-label>
+        <input matInput formControlName="title" />
+      </mat-form-field>
+      <mat-form-field class="full">
+        <mat-label>Описание</mat-label>
+        <textarea matInput formControlName="body" rows="3"></textarea>
+      </mat-form-field>
+      <button matButton="filled" type="submit">Добавить</button>
+    </form>
+    @for (item of portfolio(); track item.id) {
+      <article class="row">
+        <span><strong>{{ item.title }}</strong> {{ item.body }}</span>
+        <button matButton="text" type="button" (click)="removeDocument(item.id)">Удалить</button>
+      </article>
+    }
+  }
+</section>

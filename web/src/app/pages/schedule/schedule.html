@@ -1,0 +1,47 @@
+<section class="page">
+  <h1>Расписание</h1>
+  <div class="row">
+    <mat-button-toggle-group [value]="span()" (change)="span.set($event.value)" hideSingleSelectionIndicator>
+      <mat-button-toggle value="day">День</mat-button-toggle>
+      <mat-button-toggle value="week">Неделя</mat-button-toggle>
+    </mat-button-toggle-group>
+    <button matIconButton type="button" (click)="shift(-1)" aria-label="Назад">
+      <mat-icon>chevron_left</mat-icon>
+    </button>
+    <strong class="nums">{{ range().label }}</strong>
+    <button matIconButton type="button" (click)="shift(1)" aria-label="Вперёд">
+      <mat-icon>chevron_right</mat-icon>
+    </button>
+    <button matIconButton type="button" (click)="today()" aria-label="Сегодня">
+      <mat-icon>today</mat-icon>
+    </button>
+  </div>
+
+  @if (loading()) {
+    <div class="skeleton"></div>
+    <div class="skeleton"></div>
+  } @else if (error()) {
+    <div class="banner" role="alert">{{ error() }}</div>
+  } @else if (groups().length === 0) {
+    <div class="empty">
+      <mat-icon>event_busy</mat-icon>
+      <span>В этом промежутке занятий нет.</span>
+    </div>
+  } @else {
+    @for (group of groups(); track group.key) {
+      <h2>{{ group.title }}</h2>
+      @for (lesson of group.items; track lesson.id) {
+        <a class="lesson" [class.cancelled]="lesson.cancelled" [routerLink]="['/schedule', lesson.id]">
+          <time class="nums">{{ time(lesson.startsAt) }}–{{ time(lesson.endsAt) }}</time>
+          <span>
+            <strong class="name">{{ lesson.disciplineName }}</strong>
+            <span class="muted">{{ lesson.room }} · {{ lesson.teacherName }}</span>
+            @if (lesson.cancelled) {
+              <app-status tone="error" icon="cancel" label="Отменено" />
+            }
+          </span>
+        </a>
+      }
+    }
+  }
+</section>

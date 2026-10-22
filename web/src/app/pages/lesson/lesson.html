@@ -1,0 +1,48 @@
+<section class="page">
+  <a routerLink="/schedule">К расписанию</a>
+  @if (loading()) {
+    <div class="skeleton"></div>
+  } @else if (error()) {
+    <div class="banner" role="alert">{{ error() }}</div>
+  } @else if (lesson(); as item) {
+    <h1>{{ item.disciplineName }}</h1>
+    <p class="nums">{{ day(item.startsAt) }}, {{ time(item.startsAt) }}–{{ time(item.endsAt) }}</p>
+    <p>{{ item.room }} · {{ item.teacherName }}</p>
+    @if (item.groups.length) {
+      <p class="muted">{{ item.groups.join(', ') }}</p>
+    }
+    @if (item.cancelled) {
+      <app-status tone="error" icon="cancel" label="Занятие отменено" />
+    }
+    @if (item.note) {
+      <p>{{ item.note }}</p>
+    }
+
+    @if (item.canMarkSelf) {
+      <button matButton="filled" type="button" (click)="markSelf()">Я на занятии</button>
+    }
+    @if (actionError()) {
+      <div class="banner" role="alert">{{ actionError() }}</div>
+    }
+
+    <h2>Кто на паре</h2>
+    @for (person of item.participants; track person.userId) {
+      <div class="row">
+        <span>{{ person.fullName }}</span>
+        @if (markFor(person.userId); as mark) {
+          @if (mark.mark === 'present') {
+            <app-status [tone]="mark.origin === 'student' ? 'success' : 'info'" [icon]="mark.origin === 'student' ? 'check_circle' : 'edit'" [label]="mark.origin === 'student' ? 'Присутствовал' : 'Исправлено: был'" />
+          } @else {
+            <app-status [tone]="mark.origin === 'teacher' || mark.origin === 'admin' ? 'info' : 'error'" [icon]="mark.origin === 'student' ? 'cancel' : 'edit'" [label]="mark.origin === 'student' ? 'Отсутствовал' : 'Исправлено: не был'" />
+          }
+        } @else if (person.role === 'student') {
+          <span class="muted">Отметки нет</span>
+        }
+        @if (session.me()?.role === 'employee' && person.role === 'student') {
+          <button matButton="outlined" type="button" (click)="correct(person.userId, 'present')">Был</button>
+          <button matButton="outlined" type="button" (click)="correct(person.userId, 'absent')">Не был</button>
+        }
+      </div>
+    }
+  }
+</section>

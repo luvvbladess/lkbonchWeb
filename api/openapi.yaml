@@ -2707,9 +2707,15 @@ components:
                   $ref: "#/components/schemas/Grade"
     TeachingAssignment:
       type: object
-      required: [groupDisciplineId, disciplineName, groupName, semesterTitle, kind]
+      required: [groupDisciplineId, disciplineId, semesterId, disciplineName, groupName, semesterTitle, kind]
       properties:
         groupDisciplineId:
+          type: string
+          format: uuid
+        disciplineId:
+          type: string
+          format: uuid
+        semesterId:
           type: string
           format: uuid
         disciplineName:
